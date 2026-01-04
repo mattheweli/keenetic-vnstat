@@ -1,0 +1,69 @@
+!/bin/sh
+# VERSIONE MODIFICATA - Genera file specifici per interfaccia
+
+PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin
+VNSTATI=/opt/bin/vnstati
+CONVERT=/opt/bin/convert
+
+set -eu
+
+IFACE="${1:-}"
+OUTDIR="${2:-/opt/var/www}"
+
+# Rileva interfaccia se non fornita (MANTENUTO, ma meno utile ora)
+if [ -z "$IFACE" ]; then
+  IFACE=$(vnstat --iflist 2>/dev/null | tr ' ' '\n' | grep -v '^$' | grep -v '^lo$' | head -n1 || true)
+fi
+if [ -z "$IFACE" ]; then
+  IFACE=$(vnstat --showconfig 2>/dev/null | awk -F\" '/^Interface /{print $2; exit}' || true)
+fi
+if [ -z "$IFACE" ]; then
+  echo "ERRORE: specifica un'interfaccia (es. ppp0)" >&2
+  exit 1
+fi
+
+mkdir -p "$OUTDIR"
+
+# MODIFICA: Aggiunto $IFACE ai nomi dei file
+PREFIX="vnstat_${IFACE}"
+S="${OUTDIR}/${PREFIX}_summary.png"
+D="${OUTDIR}/${PREFIX}_days.png"
+M="${OUTDIR}/${PREFIX}_months.png"
+T="${OUTDIR}/${PREFIX}_top.png"
+ALL="${OUTDIR}/${PREFIX}_all.png"
+
+# Genera i PNG singoli
+echo "Generazione PNG per l'interfaccia: ${IFACE}"
+$VNSTATI -i "$IFACE" -s -o "$S"
+$VNSTATI -i "$IFACE" -d -o "$D"
+$VNSTATI -i "$IFACE" -m -o "$M"
+$VNSTATI -i "$IFACE" -t -o "$T"
+
+# Unisce in un PNG unico se ImageMagick è disponibile
+if command -v "$CONVERT" >/dev/null 2>&1; then
+  "$CONVERT" "$S" "$D" "$M" "$T" -append "$ALL"
+  echo "Creato PNG unificato per ${IFACE}: $ALL"
+else
+  echo "ImageMagick assente per ${IFACE}."
+fi
+
+# Crea HTML specifico per l'interfaccia
+HTMLFILE="${OUTDIR}/${IFACE}-vnstat.html"
+{
+  echo "<!doctype html>"
+  echo "<meta charset='utf-8'>"
+  echo "<meta http-equiv='refresh' content='600'>"
+  echo "<title>vnStat - ${IFACE}</title>"
+  echo "<h1>vnStat - ${IFACE}</h1>"
+  if [ -f "$ALL" ]; then
+    bn="${ALL##*/}"
+    echo "<p><img src='${bn}' style='max-width:100%;height:auto' alt='${IFACE} all'></p>"
+  else
+    for f in "$S" "$D" "$M" "$T"; do
+      b="${f##*/}"
+      echo "<p><img src='${b}' style='max-width:100%;height:auto' alt='${b}'></p>"
+    done
+  fi
+} > "$HTMLFILE"
+
+echo "Indice HTML creato/aggiornato per ${IFACE}: $HTMLFILE"
