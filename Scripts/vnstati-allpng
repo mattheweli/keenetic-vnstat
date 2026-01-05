@@ -1,69 +1,98 @@
-!/bin/sh
-# VERSIONE MODIFICATA - Genera file specifici per interfaccia
+#!/bin/sh
+# VERSIONE 2.0 - Compatibile vnStat 2.x (SQLite)
+# Genera grafici PNG singoli e unificati per l'interfaccia specificata
 
 PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin
-VNSTATI=/opt/bin/vnstati
-CONVERT=/opt/bin/convert
-
-set -eu
-
-IFACE="${1:-}"
+VNSTATI="/opt/bin/vnstati"
+CONVERT="/opt/bin/convert"
 OUTDIR="${2:-/opt/var/www}"
+IFACE="${1:-}"
 
-# Rileva interfaccia se non fornita (MANTENUTO, ma meno utile ora)
+# --- 1. RILEVAMENTO INTERFACCIA ---
+# Se non passata come argomento, prova a prendere la prima dal database
 if [ -z "$IFACE" ]; then
-  IFACE=$(vnstat --iflist 2>/dev/null | tr ' ' '\n' | grep -v '^$' | grep -v '^lo$' | head -n1 || true)
+  # vnstat --dblist elenca le interfacce nel DB. Prendiamo la prima.
+  IFACE=$(vnstat --dblist 2>/dev/null | grep -v "Database" | grep -v "^$" | head -n 1 | awk '{print $1}')
 fi
+
 if [ -z "$IFACE" ]; then
-  IFACE=$(vnstat --showconfig 2>/dev/null | awk -F\" '/^Interface /{print $2; exit}' || true)
-fi
-if [ -z "$IFACE" ]; then
-  echo "ERRORE: specifica un'interfaccia (es. ppp0)" >&2
+  echo "ERRORE: Nessuna interfaccia specificata e nessuna trovata nel DB." >&2
+  echo "Uso: $0 <interfaccia> [cartella_output]" >&2
   exit 1
+fi
+
+# Verifica che l'interfaccia esista effettivamente nel DB
+if ! vnstat -i "$IFACE" --oneline >/dev/null 2>&1; then
+    echo "ERRORE: L'interfaccia '$IFACE' non esiste nel database di vnStat." >&2
+    exit 1
 fi
 
 mkdir -p "$OUTDIR"
 
-# MODIFICA: Aggiunto $IFACE ai nomi dei file
+# --- 2. DEFINIZIONE NOMI FILE ---
 PREFIX="vnstat_${IFACE}"
 S="${OUTDIR}/${PREFIX}_summary.png"
 D="${OUTDIR}/${PREFIX}_days.png"
 M="${OUTDIR}/${PREFIX}_months.png"
 T="${OUTDIR}/${PREFIX}_top.png"
+H="${OUTDIR}/${PREFIX}_hours.png"  # Aggiunto anche grafico orario (utile)
 ALL="${OUTDIR}/${PREFIX}_all.png"
 
-# Genera i PNG singoli
-echo "Generazione PNG per l'interfaccia: ${IFACE}"
-$VNSTATI -i "$IFACE" -s -o "$S"
-$VNSTATI -i "$IFACE" -d -o "$D"
-$VNSTATI -i "$IFACE" -m -o "$M"
-$VNSTATI -i "$IFACE" -t -o "$T"
+# --- 3. GENERAZIONE PNG SINGOLI ---
+echo "Generazione grafici per interfaccia: ${IFACE}..."
 
-# Unisce in un PNG unico se ImageMagick è disponibile
-if command -v "$CONVERT" >/dev/null 2>&1; then
-  "$CONVERT" "$S" "$D" "$M" "$T" -append "$ALL"
-  echo "Creato PNG unificato per ${IFACE}: $ALL"
+# Nota: vnstati 2.x usa gli stessi flag, ma è bene forzare l'uscita
+$VNSTATI -i "$IFACE" -s -o "$S"  # Summary
+$VNSTATI -i "$IFACE" -d -o "$D"  # Days
+$VNSTATI -i "$IFACE" -m -o "$M"  # Months
+$VNSTATI -i "$IFACE" -t -o "$T"  # Top 10
+# $VNSTATI -i "$IFACE" -h -o "$H" # Decommenta se vuoi anche le ore
+
+# --- 4. CREAZIONE PNG UNIFICATO (Richiede ImageMagick) ---
+if command -v convert >/dev/null 2>&1; then
+    # Unisce verticalmente (-append) Summary, Days, Months, Top
+    "$CONVERT" "$S" "$D" "$M" "$T" -append "$ALL"
+    echo "PNG Unificato creato: $ALL"
 else
-  echo "ImageMagick assente per ${IFACE}."
+    echo "AVVISO: 'convert' (ImageMagick) non trovato. File unificato non creato."
 fi
 
-# Crea HTML specifico per l'interfaccia
+# --- 5. CREAZIONE PAGINA HTML ---
 HTMLFILE="${OUTDIR}/${IFACE}-vnstat.html"
-{
-  echo "<!doctype html>"
-  echo "<meta charset='utf-8'>"
-  echo "<meta http-equiv='refresh' content='600'>"
-  echo "<title>vnStat - ${IFACE}</title>"
-  echo "<h1>vnStat - ${IFACE}</h1>"
-  if [ -f "$ALL" ]; then
-    bn="${ALL##*/}"
-    echo "<p><img src='${bn}' style='max-width:100%;height:auto' alt='${IFACE} all'></p>"
-  else
-    for f in "$S" "$D" "$M" "$T"; do
-      b="${f##*/}"
-      echo "<p><img src='${b}' style='max-width:100%;height:auto' alt='${b}'></p>"
-    done
-  fi
-} > "$HTMLFILE"
+DATE=$(date "+%d/%m/%Y %H:%M")
 
-echo "Indice HTML creato/aggiornato per ${IFACE}: $HTMLFILE"
+cat <<EOF > "$HTMLFILE"
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <meta http-equiv='refresh' content='300'>
+    <title>Traffico ${IFACE}</title>
+    <style>
+        body { font-family: sans-serif; background: #f4f4f4; text-align: center; padding: 20px; }
+        .container { background: #fff; display: inline-block; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1 { margin: 0 0 10px 0; color: #333; }
+        .date { color: #888; font-size: 0.9em; margin-bottom: 20px; }
+        img { max-width: 100%; height: auto; display: block; margin: 0 auto 10px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Statistiche Traffico: ${IFACE}</h1>
+        <div class="date">Aggiornato: ${DATE}</div>
+EOF
+
+if [ -f "$ALL" ]; then
+    BN="${ALL##*/}"
+    echo "        <img src='${BN}' alt='Riepilogo ${IFACE}'>" >> "$HTMLFILE"
+else
+    # Fallback se ImageMagick non c'è: mostra le immagini singole
+    for f in "$S" "$D" "$M" "$T"; do
+        [ -f "$f" ] && echo "        <img src='${f##*/}' alt='Grafico'>" >> "$HTMLFILE"
+    done
+fi
+
+echo "    </div></body></html>" >> "$HTMLFILE"
+
+echo "Pagina HTML generata: $HTMLFILE"
