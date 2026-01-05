@@ -64,8 +64,8 @@ nano /opt/etc/crontab
 2. Add lines to update every 30 minutes:
 ```bash
 # Update WAN stats
-*/30 * * * * root /opt/bin/vnstat-gen.sh ppp0 > /dev/null 2>&1
+*/30 * * * * root /opt/bin/vnstati-allpng ppp0 > /dev/null 2>&1
 
 # Update LAN stats (optional)
-*/30 * * * * root /opt/bin/vnstat-gen.sh br0 > /dev/null 2>&1
+*/30 * * * * root /opt/bin/vnstati-allpng.sh br0 > /dev/null 2>&1
 ```
