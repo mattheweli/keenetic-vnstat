@@ -14,7 +14,7 @@ It creates specific PNG graphs for a chosen network interface (Summary, Daily, M
 You need Entware installed.
 ```bash
 opkg update
-opkg install vnstat vnstati imagemagick-convert
+opkg install vnstat2 vnstati2 imagemagick-convert
 ```
 Note: imagemagick-convert is optional but recommended for the merged view.
 
