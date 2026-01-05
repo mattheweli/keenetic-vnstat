@@ -25,14 +25,7 @@ Ensure the vnstat daemon is running and collecting data:
 
 ## Installation
 
-1. **Download the script** to /opt/bin:
-```bash
-curl -L -o /opt/bin/vnstat-gen.sh [https://raw.githubusercontent.com/YOUR_USERNAME/vnstat-dashboard-gen/main/vnstat-gen.sh](https://raw.githubusercontent.com/YOUR_USERNAME/vnstat-dashboard-gen/main/vnstat-gen.sh)
-chmod +x /opt/bin/vnstat-gen.sh
-```
-
-
-2. **Web Server Setup** (Lighttpd) Ensure your web server points to /opt/var/www. If you use Lighttpd (default on Entware):
+**Web Server Setup** (Lighttpd) Ensure your web server points to /opt/var/www. If you use Lighttpd (default on Entware):
 
 * Config file: /opt/etc/lighttpd/lighttpd.conf
 * Document root: server.document-root = "/opt/var/www"
