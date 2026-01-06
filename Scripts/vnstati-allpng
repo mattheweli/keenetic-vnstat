@@ -1,98 +1,155 @@
 #!/bin/sh
-# VERSIONE 2.0 - Compatibile vnStat 2.x (SQLite)
-# Genera grafici PNG singoli e unificati per l'interfaccia specificata
+# VERSION 2.0.3 - English / Responsive Grid Layout
+# Generates: Summary, Hourly, Daily, Monthly, Yearly, Top10
+# Layout: Dual column on Desktop, Single column on Mobile via CSS
+# Dependencies: vnstat 2.x, ImageMagick (optional)
 
 PATH=/opt/bin:/opt/sbin:/bin:/sbin:/usr/bin:/usr/sbin
 VNSTATI="/opt/bin/vnstati"
-CONVERT="/opt/bin/convert"
 OUTDIR="${2:-/opt/var/www}"
 IFACE="${1:-}"
 
-# --- 1. RILEVAMENTO INTERFACCIA ---
-# Se non passata come argomento, prova a prendere la prima dal database
+# 1. IMAGEMAGICK DETECTION
+# Check for 'magick' (v7) or fallback to 'convert' (v6)
+if command -v magick >/dev/null 2>&1; then
+    IM_CMD="magick"
+elif command -v convert >/dev/null 2>&1; then
+    IM_CMD="convert"
+else
+    IM_CMD=""
+fi
+
+# 2. INTERFACE DETECTION
 if [ -z "$IFACE" ]; then
-  # vnstat --dblist elenca le interfacce nel DB. Prendiamo la prima.
   IFACE=$(vnstat --dblist 2>/dev/null | grep -v "Database" | grep -v "^$" | head -n 1 | awk '{print $1}')
 fi
 
 if [ -z "$IFACE" ]; then
-  echo "ERRORE: Nessuna interfaccia specificata e nessuna trovata nel DB." >&2
-  echo "Uso: $0 <interfaccia> [cartella_output]" >&2
+  echo "ERROR: No interface specified and none found in DB." >&2
+  echo "Usage: $0 <interface> [output_dir]" >&2
   exit 1
 fi
 
-# Verifica che l'interfaccia esista effettivamente nel DB
 if ! vnstat -i "$IFACE" --oneline >/dev/null 2>&1; then
-    echo "ERRORE: L'interfaccia '$IFACE' non esiste nel database di vnStat." >&2
+    echo "ERROR: Interface '$IFACE' does not exist in vnStat database." >&2
     exit 1
 fi
 
 mkdir -p "$OUTDIR"
 
-# --- 2. DEFINIZIONE NOMI FILE ---
+# 3. FILE DEFINITIONS
 PREFIX="vnstat_${IFACE}"
 S="${OUTDIR}/${PREFIX}_summary.png"
+H="${OUTDIR}/${PREFIX}_hours.png"
 D="${OUTDIR}/${PREFIX}_days.png"
 M="${OUTDIR}/${PREFIX}_months.png"
+Y="${OUTDIR}/${PREFIX}_years.png"
 T="${OUTDIR}/${PREFIX}_top.png"
-H="${OUTDIR}/${PREFIX}_hours.png"  # Aggiunto anche grafico orario (utile)
 ALL="${OUTDIR}/${PREFIX}_all.png"
 
-# --- 3. GENERAZIONE PNG SINGOLI ---
-echo "Generazione grafici per interfaccia: ${IFACE}..."
+# 4. CHART GENERATION
+echo "Generating charts for interface: ${IFACE}..."
 
-# Nota: vnstati 2.x usa gli stessi flag, ma è bene forzare l'uscita
-$VNSTATI -i "$IFACE" -s -o "$S"  # Summary
-$VNSTATI -i "$IFACE" -d -o "$D"  # Days
-$VNSTATI -i "$IFACE" -m -o "$M"  # Months
-$VNSTATI -i "$IFACE" -t -o "$T"  # Top 10
-# $VNSTATI -i "$IFACE" -h -o "$H" # Decommenta se vuoi anche le ore
+$VNSTATI -i "$IFACE" -s -o "$S"
+$VNSTATI -i "$IFACE" -h -o "$H"
+$VNSTATI -i "$IFACE" -d -o "$D"
+$VNSTATI -i "$IFACE" -m -o "$M"
+$VNSTATI -i "$IFACE" -y -o "$Y"
+$VNSTATI -i "$IFACE" -t -o "$T"
 
-# --- 4. CREAZIONE PNG UNIFICATO (Richiede ImageMagick) ---
-if command -v convert >/dev/null 2>&1; then
-    # Unisce verticalmente (-append) Summary, Days, Months, Top
-    "$CONVERT" "$S" "$D" "$M" "$T" -append "$ALL"
-    echo "PNG Unificato creato: $ALL"
+# 5. UNIFIED IMAGE CREATION (Vertical Strip Backup)
+# We keep the single image vertical for compatibility, but HTML will handle the layout.
+if [ -n "$IM_CMD" ]; then
+    "$IM_CMD" "$S" "$H" "$D" "$M" "$Y" "$T" -append "$ALL"
+    echo "Unified PNG created: $ALL"
 else
-    echo "AVVISO: 'convert' (ImageMagick) non trovato. File unificato non creato."
+    echo "WARNING: ImageMagick not found. Unified PNG skipped."
 fi
 
-# --- 5. CREAZIONE PAGINA HTML ---
+# 6. HTML GENERATION (Responsive Dual Column)
 HTMLFILE="${OUTDIR}/${IFACE}-vnstat.html"
 DATE=$(date "+%d/%m/%Y %H:%M")
 
 cat <<EOF > "$HTMLFILE"
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset='utf-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <meta http-equiv='refresh' content='300'>
-    <title>Traffico ${IFACE}</title>
+    <title>${IFACE} Traffic Stats</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
     <style>
-        body { font-family: sans-serif; background: #f4f4f4; text-align: center; padding: 20px; }
-        .container { background: #fff; display: inline-block; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        h1 { margin: 0 0 10px 0; color: #333; }
-        .date { color: #888; font-size: 0.9em; margin-bottom: 20px; }
-        img { max-width: 100%; height: auto; display: block; margin: 0 auto 10px; border: 1px solid #ddd; }
+        :root { --bg: #f0f2f5; --card: #fff; --text: #333; --shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        
+        .container { max-width: 1100px; margin: 0 auto; }
+        
+        h1 { text-align: center; color: #1a1a1a; margin-bottom: 5px; }
+        .date { text-align: center; color: #666; font-size: 0.9em; margin-bottom: 30px; }
+        
+        /* RESPONSIVE GRID LAYOUT */
+        .grid { 
+            display: grid; 
+            grid-template-columns: 1fr; /* Default Mobile: 1 Column */
+            gap: 20px; 
+            align-items: start;
+        }
+        
+        /* DESKTOP TWEAK: 2 Columns if screen is wide enough */
+        @media (min-width: 768px) {
+            .grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        .card { background: var(--card); padding: 15px; border-radius: 12px; box-shadow: var(--shadow); text-align: center; }
+        .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin: 0 0 15px 0; border-bottom: 1px solid #eee; padding-bottom: 10px;}
+        
+        img { max-width: 100%; height: auto; border-radius: 4px; }
+        
+        .footer { text-align: center; font-size: 0.8em; color: #999; margin-top: 40px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Statistiche Traffico: ${IFACE}</h1>
-        <div class="date">Aggiornato: ${DATE}</div>
+        <h1>📊 Traffic Statistics: ${IFACE}</h1>
+        <div class="date">Last Update: ${DATE}</div>
+
+        <div class="grid">
+            <div class="column">
+                <div class="card">
+                    <h2>Summary</h2>
+                    <img src='${S##*/}' alt='Summary'>
+                </div>
+                <div class="card" style="margin-top: 20px">
+                    <h2>Last 24 Hours</h2>
+                    <img src='${H##*/}' alt='Hourly'>
+                </div>
+                <div class="card" style="margin-top: 20px">
+                    <h2>Daily History</h2>
+                    <img src='${D##*/}' alt='Daily'>
+                </div>
+            </div>
+
+            <div class="column">
+                <div class="card">
+                    <h2>Monthly History</h2>
+                    <img src='${M##*/}' alt='Monthly'>
+                </div>
+                <div class="card" style="margin-top: 20px">
+                    <h2>Yearly History</h2>
+                    <img src='${Y##*/}' alt='Yearly'>
+                </div>
+                <div class="card" style="margin-top: 20px">
+                    <h2>Top 10 Days</h2>
+                    <img src='${T##*/}' alt='Top 10'>
+                </div>
+            </div>
+        </div>
+
+        <div class='footer'>Generated by vnStat 2 & ImageMagick</div>
+    </div>
+</body>
+</html>
 EOF
 
-if [ -f "$ALL" ]; then
-    BN="${ALL##*/}"
-    echo "        <img src='${BN}' alt='Riepilogo ${IFACE}'>" >> "$HTMLFILE"
-else
-    # Fallback se ImageMagick non c'è: mostra le immagini singole
-    for f in "$S" "$D" "$M" "$T"; do
-        [ -f "$f" ] && echo "        <img src='${f##*/}' alt='Grafico'>" >> "$HTMLFILE"
-    done
-fi
-
-echo "    </div></body></html>" >> "$HTMLFILE"
-
-echo "Pagina HTML generata: $HTMLFILE"
+echo "HTML Page generated: $HTMLFILE"
